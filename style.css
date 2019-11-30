@@ -1,3 +1,7 @@
+html {
+	overflow: hidden;
+}
+
 #player {
 	position: absolute;
 	bottom: 100px;
