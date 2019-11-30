@@ -1,0 +1,18 @@
+#player {
+	position: absolute;
+	bottom: 100px;
+	left: 50%;
+	transform: translateX(-50%);
+	height: 30px;
+	width: 30px;
+	background-color: tomato;
+}
+
+#ground {
+	position: absolute;
+	bottom: 95px;
+	height: 5px;
+	background-color: darkslategray;
+	left: 0;
+	right: 0;
+}
