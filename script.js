@@ -1,119 +1,185 @@
-import { prop, compose, equals, dec, divide, add, evolve, identity, ifElse, allPass, flip, curry, nth, times, concat, flatten } from "ramda";
+import {
+	prop,
+	compose,
+	equals,
+	dec,
+	divide,
+	add,
+	evolve,
+	identity,
+	ifElse,
+	allPass,
+	flip,
+	nth,
+	subtract,
+	not,
+	inc,
+	times,
+	flatten,
+	concat,
+} from "ramda";
 
-// CONSTANTS ////////////////////////
+// CONSTANTS ///////////////////////
 
-const FRAME_GAP = 4
-const DEBUG_FRAME_GAP = FRAME_GAP + 10;
-const INITIAL_STATE = { playerYPos: 0, playerYVelo: 0, world: [], worldIdx: 0 };
+const FRAME_GAP = 4;
+const DEBUG_FRAME_GAP = 10;
+const JUMP_STRENGTH = 800;
+const JUMP_INITIAL_STRENGTH = 100;
+const GRAVITY_STRENGTH = 13;
+const INITIAL_STATE = {
+	previousState: {
+		posX: 100,
+		veloX: 0,
+		posY: 0,
+		veloY: 0,
+	},
+	posX: 100,
+	veloX: 0,
+	posY: 0,
+	veloY: 0,
+	world: [],
+};
 
-// GLOBAL STATE /////////////////////
+// INPUT STATE /////////////////////
 
-const INPUT_MEM = { jump: false, forward: false, backward: false };
+const INPUT_STATE = {
+	jump: false,
+	forward: false,
+	backward: false,
+};
 
-// UTILS ////////////////////////////
+document.onkeydown = ({ keyCode }) => {
+	keyCode === 87 ? INPUT_STATE.jump = true : null;
+	keyCode === 68 ? INPUT_STATE.forward = true : null;
+	keyCode === 65 ? INPUT_STATE.backward = true : null;
+};
 
-const smallerThan = curry((x, y) => x > y);
+document.onkeyup = ({ keyCode }) => {
+	keyCode === 87 ? INPUT_STATE.jump = false : null;
+	keyCode === 68 ? INPUT_STATE.forward = false : null;
+	keyCode === 65 ? INPUT_STATE.backward = false : null;
+};
+
+// PURE LOGIC //////////////////////
+
 const doNothing = identity;
-const smallerThan1 = smallerThan(1);
-const equalsTrue = equals(true);
-const add100 = add(100);
-const add1 = add(1);
-const divideBy = flip(divide);
-const divideBy50 = divideBy(50);
+const positive = x => x > 0;
+const negative = compose(not, positive);
 const setTo0 = _ => 0;
-const timesN = flip(times);
-const times100 = timesN(100);
-const times1000 = timesN(1000);
-const times50 = timesN(50);
-const aTrue = _ => true;
-const aFalse = _ => false;
-const getFrom = flip(nth);
 
-// PHYSICS /////////////////////////
-
-const playerYPos = prop("playerYPos");
-const playerIsGroundLevel = compose(smallerThan1, playerYPos);
-const worldIndex = prop("worldIdx");
+const posX = prop("posX");
+const veloX = prop("veloX");
+const posY = prop("posY");
+const veloY = prop("veloY");
 const world = prop("world");
-const ground = state => nth(worldIndex(state), world(state));
-const groundExists = compose(equalsTrue, ground);
-const playerIsGrounded = allPass([ groundExists, playerIsGroundLevel ]);
-const jumpTransformation = { playerYVelo: add100, playerYPos: add1 };
-const jumpEvolve = evolve(jumpTransformation);
+const previousState = prop("previousState");
+
+const playerIsGroundLevel = compose(equals(0), posY);
+const worldPos = state => nth(posX(state), world(state));
+const playerHasGround = compose(equals(true), worldPos);
+const playerIsGrounded = allPass([ playerIsGroundLevel, playerHasGround ]);
+
+const jumpEvolve = evolve({ veloY: add(JUMP_STRENGTH), posY: add(JUMP_INITIAL_STRENGTH) });
 const jump = ifElse(playerIsGrounded, jumpEvolve, doNothing);
-const gravityTransformation = { playerYVelo: dec };
-const gravityEvolve = evolve(gravityTransformation);
-const landingTransformation = { playerYVelo: setTo0, playerYPos: setTo0 };
-const landingEvolve = evolve(landingTransformation);
-const gravity = ifElse(playerIsGrounded, landingEvolve, gravityEvolve);
-const playerYVelocity = prop("playerYVelo");
-const addPlayerVelocity = compose(add, playerYVelocity);
-const velocityTransformation = state => ({ playerYPos: addPlayerVelocity(state) });
-const velocity = state => evolve(velocityTransformation(state), state);
+
+const previousPosYPositive = compose(positive, posY, previousState);
+const posYNegative = compose(negative, posY);
+const fallingThroughFloor = allPass([ previousPosYPositive, posYNegative ]);
+
+const gravityEvolve = ifElse(
+	fallingThroughFloor,
+	evolve({ posY: setTo0, veloY: setTo0 }),
+	evolve({ veloY: flip(subtract)(GRAVITY_STRENGTH) }),
+);
+const gravity = ifElse(playerIsGrounded, doNothing, gravityEvolve);
+
+const addVeloY = compose(add, veloY);
+const addVeloX = compose(add, veloX);
+const velocity = state => evolve({ posY: addVeloY(state), posX: addVeloX(state) }, state);
+
+const currentState = state => ({ posX: posX(state), veloX: veloX(state), posY: posY(state), veloY: veloY(state) });
+const memorizePreviousState = state => evolve({ previousState: () => currentState(state) }, state);
+
+const goForward = evolve({ veloX: () => 1 });
+const goBackward = evolve({ veloX: () => -1 });
+
 const physics = compose(gravity, velocity);
-const frameRateSleep = debugMode => debugMode ? DEBUG_FRAME_GAP : FRAME_GAP;
-const toPx = x => `${x}px`;
-const playerYPosToPx = compose(toPx, add100, compose(divideBy50, playerYPos));
-const stepTransformationFn = worldIdx => INPUT_MEM.forward ? add1(worldIdx) : INPUT_MEM.backward ? dec(worldIdx) : doNothing(worldIdx);
-const stepTransformation = { worldIdx: stepTransformationFn };
-const step = evolve(stepTransformation);
+const asPx = x => `${x}px`;
+const posYAsPX = compose(asPx, add(100), flip(divide)(100), posY);
 
-// WORLD ////////////////////////////
+// WORLD ///////////////////////////
 
-const generateGroundBlock = () => times100(aTrue);
-const generateHoleBlock = () => concat(times50(aFalse), times50(aTrue));
-const randomBlock = difficulty => Math.random() > difficulty ? generateGroundBlock() : generateHoleBlock();
-const generateWorld = difficulty => flatten(times1000(() => randomBlock(difficulty)));
-const getFromWorld = compose(getFrom, world);
+const getTrue = () => true;
+const getFalse = () => false;
 
-// "IMPURE BUSINESS LOGIC" /////////
+const generateGroundBlock = () => times(getTrue, 100);
+const generateHoleBlock = () => concat(times(getFalse, 50), times(getTrue, 50));
+const generateRandomBlock = difficulty => Math.random() > difficulty ? generateGroundBlock() : generateHoleBlock()
+const generateWorld = difficulty => flatten(times(() => generateRandomBlock(difficulty), 1000));
 
-function debug(x) {
-	console.log(x);
-	return x;
+const nthOf = flip(nth);
+const getFromWorld = compose(nthOf, world);
+
+// WRAP UP /////////////////////////
+
+function debug(state) {
+	console.log(state);
+	return state;
 }
 
-function resetInputs() {
-	INPUT_MEM.jump = false;
+function drawPlayerPos(state) {
+	document.getElementById("player").style.bottom = posYAsPX(state);
+	return state;
 }
 
-const getJumpInput = () => INPUT_MEM.jump ? jump : doNothing;
-
-function updatePlayerPos(state) {
-	document.getElementById("player").style.bottom = playerYPosToPx(state);
-}
-
-function updateBlockStyle(index, status) {
-	document.getElementsByClassName(`ground${index}`)[0].style.background = status ? "black" : "white";
+function drawBlock(index, ground) {
+	document.getElementsByClassName(`ground${index}`)[0].style.background = ground ? "black" : "white";
 }
 
 function drawWorldBlocks(state) {
-	const getter = getFromWorld(state);
-	const worldIdx = worldIndex(state);
-	for (let i = -40; i < 41; i++) {
-		updateBlockStyle(i, getter(worldIdx + i));
+	const worldGetter = getFromWorld(state);
+	const playerPosition = posX(state);
+	for (let i = -100; i < 101; i++) {
+		drawBlock(i, worldGetter(playerPosition + i));
 	}
+	return state;
 }
 
+const draw = compose(drawWorldBlocks, drawPlayerPos);
+
+const readInputState = flip(prop)(INPUT_STATE);
+
+const jumpEffect = () => readInputState("jump") ? jump : doNothing;
+const forwardEffect = () => readInputState("forward") ? goForward : doNothing;
+const backwardEffect = () => readInputState("backward") ? goBackward : doNothing;
+
+const getFrameGap = debugMode => debugMode ? DEBUG_FRAME_GAP : FRAME_GAP;
+const getDebugger = debugMode => debugMode ? debug : doNothing;
+
 async function frame(state, debugMode = false) {
-	await new Promise(r => setTimeout(r, frameRateSleep(debugMode)));
-	const debuggerFn = debugMode ? debug : doNothing;
-	const nextState = compose(debuggerFn, step, physics, getJumpInput())(state);
-	resetInputs();
-	drawWorldBlocks(state);
-	updatePlayerPos(nextState);
+	await new Promise(r => setTimeout(r, getFrameGap(debugMode)));
+	const effects = compose(jumpEffect(), forwardEffect(), backwardEffect());
+	const nextState = compose(
+		memorizePreviousState,
+		getDebugger(debugMode),
+		draw,
+		physics,
+		effects,
+	)(state);
 	frame(nextState, debugMode);
 }
 
+function populateWorldDrawBlocks() {
+	for (let i = -100; i < 101; i++) {
+		const block = document.createElement("div");
+		block.setAttribute("class", `ground ground${i}`);
+		block.style.left = `${i / 2 + 50}vw`;
+		block.style.background = "black";
+		document.body.prepend(block);
+	}
+}
 
-document.onkeyup = ({ keyCode }) => {
-	keyCode === 68 ? INPUT_MEM.forward = false : doNothing;
-	keyCode === 65 ? INPUT_MEM.backward = false : doNothing;
+export default debugMode => {
+	populateWorldDrawBlocks();
+	frame({ ...INITIAL_STATE, world: generateWorld(.5) }, debugMode);
 };
-document.onkeydown = ({ keyCode }) => {
-	keyCode === 87 ? INPUT_MEM.jump = true : doNothing;
-	keyCode === 68 ? INPUT_MEM.forward = true : doNothing;
-	keyCode === 65 ? INPUT_MEM.backward = true : doNothing;
-};
-
-export default debug => frame({ ...INITIAL_STATE, world: generateWorld(.3) }, debug);
