@@ -84,7 +84,7 @@ const jump = ifElse(playerIsGrounded, jumpEvolve, doNothing);
 
 const previousPosYPositive = compose(positive, posY, previousState);
 const posYNegative = compose(negative, posY);
-const fallingThroughFloor = allPass([ previousPosYPositive, posYNegative ]);
+const fallingThroughFloor = allPass([ previousPosYPositive, posYNegative, playerHasGround ]);
 
 const gravityEvolve = ifElse(
 	fallingThroughFloor,
@@ -103,7 +103,7 @@ const memorizePreviousState = state => evolve({ previousState: () => currentStat
 const goForward = evolve({ veloX: () => 1 });
 const goBackward = evolve({ veloX: () => -1 });
 
-const physics = compose(gravity, velocity);
+const physics = compose(memorizePreviousState, gravity, velocity);
 const asPx = x => `${x}px`;
 const posYAsPX = compose(asPx, add(100), flip(divide)(100), posY);
 
@@ -113,7 +113,7 @@ const getTrue = () => true;
 const getFalse = () => false;
 
 const generateGroundBlock = () => times(getTrue, 100);
-const generateHoleBlock = () => concat(times(getFalse, 50), times(getTrue, 50));
+const generateHoleBlock = () => concat(times(getTrue, 40), times(getFalse, 60));
 const generateRandomBlock = difficulty => Math.random() > difficulty ? generateGroundBlock() : generateHoleBlock()
 const generateWorld = difficulty => flatten(times(() => generateRandomBlock(difficulty), 1000));
 
@@ -160,7 +160,6 @@ async function frame(state, debugMode = false) {
 	await new Promise(r => setTimeout(r, getFrameGap(debugMode)));
 	const effects = compose(jumpEffect(), forwardEffect(), backwardEffect());
 	const nextState = compose(
-		memorizePreviousState,
 		getDebugger(debugMode),
 		draw,
 		physics,
@@ -181,5 +180,5 @@ function populateWorldDrawBlocks() {
 
 export default debugMode => {
 	populateWorldDrawBlocks();
-	frame({ ...INITIAL_STATE, world: generateWorld(.5) }, debugMode);
+	frame({ ...INITIAL_STATE, world: generateWorld(1) }, debugMode);
 };
